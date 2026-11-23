@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
-	"errors"
-	"fmt"
 	"hash/crc32"
 	"io"
 	"strconv"
 	"strings"
+
+	imageerrors "github.com/shiyou0130011/chichipui-ai-img-rename/errors"
 )
 
 const (
@@ -23,15 +23,15 @@ var pngSignature = []byte{137, 80, 78, 71, 13, 10, 26, 10}
 // The reader can be an open local file or a remote response body.
 func GetImageMetadata(reader io.Reader) (prompt string, seed int64, model string, err error) {
 	if reader == nil {
-		return "", 0, "", errors.New("image reader is nil")
+		return "", 0, "", imageerrors.ErrNilImageReader
 	}
 
 	data, err := io.ReadAll(io.LimitReader(reader, maxImageSize+1))
 	if err != nil {
-		return "", 0, "", fmt.Errorf("read image: %w", err)
+		return "", 0, "", imageerrors.WrapImageRead(err)
 	}
 	if len(data) > maxImageSize {
-		return "", 0, "", fmt.Errorf("image exceeds maximum size of %d bytes", maxImageSize)
+		return "", 0, "", imageerrors.ImageTooLarge(len(data), maxImageSize)
 	}
 
 	parameters, err := readPNGParameters(data)
@@ -43,7 +43,7 @@ func GetImageMetadata(reader io.Reader) (prompt string, seed int64, model string
 
 func readPNGParameters(data []byte) (string, error) {
 	if len(data) < len(pngSignature) || !bytes.Equal(data[:len(pngSignature)], pngSignature) {
-		return "", errors.New("image is not a PNG")
+		return "", imageerrors.ErrNotPNG
 	}
 
 	offset := len(pngSignature)
@@ -53,20 +53,20 @@ func readPNGParameters(data []byte) (string, error) {
 
 	for offset < len(data) {
 		if len(data)-offset < 12 {
-			return "", errors.New("truncated PNG chunk")
+			return "", imageerrors.ErrTruncatedPNGChunk
 		}
 
 		length := uint64(binary.BigEndian.Uint32(data[offset : offset+4]))
 		chunkEnd := uint64(offset) + 12 + length
 		if chunkEnd > uint64(len(data)) {
-			return "", errors.New("truncated PNG chunk data")
+			return "", imageerrors.ErrTruncatedPNGChunkData
 		}
 
 		chunkType := data[offset+4 : offset+8]
 		chunkData := data[offset+8 : offset+8+int(length)]
 		checksum := binary.BigEndian.Uint32(data[offset+8+int(length) : int(chunkEnd)])
 		if crc32.ChecksumIEEE(data[offset+4:offset+8+int(length)]) != checksum {
-			return "", fmt.Errorf("invalid PNG checksum for %q chunk", chunkType)
+			return "", imageerrors.InvalidPNGChecksum(chunkType)
 		}
 
 		if !foundParameters && (bytes.Equal(chunkType, []byte("tEXt")) ||
@@ -90,10 +90,10 @@ func readPNGParameters(data []byte) (string, error) {
 	}
 
 	if !foundEnd {
-		return "", errors.New("PNG is missing its IEND chunk")
+		return "", imageerrors.ErrPNGMissingIEND
 	}
 	if !foundParameters {
-		return "", errors.New("PNG does not contain parameters metadata")
+		return "", imageerrors.ErrPNGParametersMissing
 	}
 	return parameters, nil
 }
@@ -101,7 +101,7 @@ func readPNGParameters(data []byte) (string, error) {
 func decodeTextChunk(chunkType, data []byte) (string, string, error) {
 	separator := bytes.IndexByte(data, 0)
 	if separator < 0 {
-		return "", "", fmt.Errorf("malformed %q PNG text chunk", chunkType)
+		return "", "", imageerrors.MalformedPNGTextChunk(chunkType)
 	}
 	keyword := string(data[:separator])
 	textData := data[separator+1:]
@@ -111,23 +111,23 @@ func decodeTextChunk(chunkType, data []byte) (string, string, error) {
 		return keyword, string(textData), nil
 	case "zTXt":
 		if len(textData) < 2 || textData[0] != 0 {
-			return "", "", errors.New("unsupported or malformed zTXt compression")
+			return "", "", imageerrors.ErrUnsupportedZTXtCompression
 		}
 		text, err := decompressMetadata(textData[1:])
 		return keyword, text, err
 	case "iTXt":
 		if len(textData) < 2 {
-			return "", "", errors.New("malformed iTXt PNG text chunk")
+			return "", "", imageerrors.ErrMalformedITXtChunk
 		}
 		compressed := textData[0] == 1
 		if textData[0] > 1 || textData[1] != 0 {
-			return "", "", errors.New("unsupported iTXt compression")
+			return "", "", imageerrors.ErrUnsupportedITXtCompression
 		}
 		rest := textData[2:]
 		for i := 0; i < 2; i++ {
 			separator := bytes.IndexByte(rest, 0)
 			if separator < 0 {
-				return "", "", errors.New("malformed iTXt PNG text chunk")
+				return "", "", imageerrors.ErrMalformedITXtChunk
 			}
 			rest = rest[separator+1:]
 		}
@@ -136,27 +136,27 @@ func decodeTextChunk(chunkType, data []byte) (string, string, error) {
 			return keyword, text, err
 		}
 		if len(rest) > maxMetadataSize {
-			return "", "", errors.New("PNG metadata exceeds maximum size")
+			return "", "", imageerrors.ErrPNGMetadataTooLarge
 		}
 		return keyword, string(rest), nil
 	default:
-		return "", "", fmt.Errorf("unsupported PNG text chunk %q", chunkType)
+		return "", "", imageerrors.UnsupportedPNGTextChunk(chunkType)
 	}
 }
 
 func decompressMetadata(data []byte) (string, error) {
 	reader, err := zlib.NewReader(bytes.NewReader(data))
 	if err != nil {
-		return "", fmt.Errorf("decompress PNG metadata: %w", err)
+		return "", imageerrors.WrapPNGMetadataDecompression(err)
 	}
 	defer reader.Close()
 
 	text, err := io.ReadAll(io.LimitReader(reader, maxMetadataSize+1))
 	if err != nil {
-		return "", fmt.Errorf("decompress PNG metadata: %w", err)
+		return "", imageerrors.WrapPNGMetadataDecompression(err)
 	}
 	if len(text) > maxMetadataSize {
-		return "", errors.New("PNG metadata exceeds maximum size")
+		return "", imageerrors.ErrPNGMetadataTooLarge
 	}
 	return string(text), nil
 }
@@ -182,7 +182,7 @@ func parseParameters(parameters string) (string, int64, string, error) {
 		case "Seed":
 			parsedSeed, parseErr := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
 			if parseErr != nil {
-				return "", 0, "", fmt.Errorf("invalid Seed metadata %q: %w", value, parseErr)
+				return "", 0, "", imageerrors.InvalidPNGSeed(value, parseErr)
 			}
 			seed = parsedSeed
 			foundSeed = true
@@ -193,13 +193,13 @@ func parseParameters(parameters string) (string, int64, string, error) {
 	}
 
 	if prompt == "" {
-		return "", 0, "", errors.New("PNG parameters metadata does not contain a prompt")
+		return "", 0, "", imageerrors.ErrPNGPromptMissing
 	}
 	if !foundSeed {
-		return "", 0, "", errors.New("PNG parameters metadata does not contain a Seed")
+		return "", 0, "", imageerrors.ErrPNGSeedMissing
 	}
 	if !foundModel {
-		return "", 0, "", errors.New("PNG parameters metadata does not contain a Model")
+		return "", 0, "", imageerrors.ErrPNGModelMissing
 	}
 	return prompt, seed, model, nil
 }

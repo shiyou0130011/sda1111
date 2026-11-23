@@ -3,10 +3,13 @@ package image
 import (
 	"bytes"
 	"encoding/binary"
+	stderrors "errors"
 	"hash/crc32"
 	"image"
 	"image/png"
 	"testing"
+
+	imageerrors "github.com/shiyou0130011/chichipui-ai-img-rename/errors"
 )
 
 func TestGetImageMetadata(t *testing.T) {
@@ -39,8 +42,8 @@ func TestGetImageMetadataRejectsMissingFields(t *testing.T) {
 
 func TestGetImageMetadataRejectsNilReader(t *testing.T) {
 	_, _, _, err := GetImageMetadata(nil)
-	if err == nil {
-		t.Fatal("GetImageMetadata() error = nil, want nil reader error")
+	if !stderrors.Is(err, imageerrors.ErrNilImageReader) {
+		t.Fatalf("GetImageMetadata() error = %v, want %v", err, imageerrors.ErrNilImageReader)
 	}
 }
 
