@@ -8,11 +8,8 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
-	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
-	"time"
 )
 
 const (
@@ -22,25 +19,14 @@ const (
 
 var pngSignature = []byte{137, 80, 78, 71, 13, 10, 26, 10}
 
-// GetImageMetadata downloads a PNG image and returns its prompt, seed, and model.
-func GetImageMetadata(imageURL string) (prompt string, seed int64, model string, err error) {
-	parsedURL, err := url.ParseRequestURI(imageURL)
-	if err != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
-		return "", 0, "", fmt.Errorf("invalid HTTP(S) image URL %q", imageURL)
+// GetImageMetadata reads a PNG image and returns its prompt, seed, and model.
+// The reader can be an open local file or a remote response body.
+func GetImageMetadata(reader io.Reader) (prompt string, seed int64, model string, err error) {
+	if reader == nil {
+		return "", 0, "", errors.New("image reader is nil")
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	response, err := client.Get(parsedURL.String())
-	if err != nil {
-		return "", 0, "", fmt.Errorf("download image: %w", err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return "", 0, "", fmt.Errorf("download image: unexpected HTTP status %s", response.Status)
-	}
-
-	data, err := io.ReadAll(io.LimitReader(response.Body, maxImageSize+1))
+	data, err := io.ReadAll(io.LimitReader(reader, maxImageSize+1))
 	if err != nil {
 		return "", 0, "", fmt.Errorf("read image: %w", err)
 	}

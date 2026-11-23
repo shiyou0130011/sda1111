@@ -6,8 +6,6 @@ import (
 	"hash/crc32"
 	"image"
 	"image/png"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 )
 
@@ -15,13 +13,8 @@ func TestGetImageMetadata(t *testing.T) {
 	const prompt = "1 girl, black hair, long hair, red eyes, bangs, blunt_bangs, low twintails, big breasts, smile, kimono,fox mask,temple festival,"
 	const parameters = prompt + "\nNegative prompt: low quality\nSteps: 30, Sampler: Euler a, Seed: 1085462827, Size: 1536x1024, Model: HALO"
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "image/png")
-		_, _ = w.Write(pngWithParameters(t, parameters))
-	}))
-	defer server.Close()
-
-	gotPrompt, seed, model, err := GetImageMetadata(server.URL + "/image.png")
+	reader := bytes.NewReader(pngWithParameters(t, parameters))
+	gotPrompt, seed, model, err := GetImageMetadata(reader)
 	if err != nil {
 		t.Fatalf("GetImageMetadata() error = %v", err)
 	}
@@ -37,14 +30,17 @@ func TestGetImageMetadata(t *testing.T) {
 }
 
 func TestGetImageMetadataRejectsMissingFields(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write(pngWithParameters(t, "a prompt\nSteps: 30, Sampler: Euler a"))
-	}))
-	defer server.Close()
-
-	_, _, _, err := GetImageMetadata(server.URL)
+	reader := bytes.NewReader(pngWithParameters(t, "a prompt\nSteps: 30, Sampler: Euler a"))
+	_, _, _, err := GetImageMetadata(reader)
 	if err == nil {
 		t.Fatal("GetImageMetadata() error = nil, want missing metadata error")
+	}
+}
+
+func TestGetImageMetadataRejectsNilReader(t *testing.T) {
+	_, _, _, err := GetImageMetadata(nil)
+	if err == nil {
+		t.Fatal("GetImageMetadata() error = nil, want nil reader error")
 	}
 }
 
