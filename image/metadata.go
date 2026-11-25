@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	imageerrors "github.com/shiyou0130011/chichipui-ai-img-rename/errors"
+	imageerrors "github.com/shiyou0130011/sda1111/errors"
 )
 
 const (
