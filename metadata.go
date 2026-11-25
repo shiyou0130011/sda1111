@@ -41,6 +41,7 @@ func GetImageMetadata(reader io.Reader) (prompt string, seed int64, model string
 	return parseParameters(parameters)
 }
 
+// readPNGParameters 驗證 PNG 結構並取得 parameters 文字區塊內容。
 func readPNGParameters(data []byte) (string, error) {
 	if len(data) < len(pngSignature) || !bytes.Equal(data[:len(pngSignature)], pngSignature) {
 		return "", imageerrors.ErrNotPNG
@@ -98,6 +99,7 @@ func readPNGParameters(data []byte) (string, error) {
 	return parameters, nil
 }
 
+// decodeTextChunk 依區塊類型解碼 PNG 文字區塊及其 metadata。
 func decodeTextChunk(chunkType, data []byte) (string, string, error) {
 	separator := bytes.IndexByte(data, 0)
 	if separator < 0 {
@@ -144,6 +146,7 @@ func decodeTextChunk(chunkType, data []byte) (string, string, error) {
 	}
 }
 
+// decompressMetadata 解壓縮 PNG metadata，並限制輸出大小。
 func decompressMetadata(data []byte) (string, error) {
 	reader, err := zlib.NewReader(bytes.NewReader(data))
 	if err != nil {
@@ -161,6 +164,7 @@ func decompressMetadata(data []byte) (string, error) {
 	return string(text), nil
 }
 
+// parseParameters 從 parameters 文字中解析 prompt、seed 與 model。
 func parseParameters(parameters string) (string, int64, string, error) {
 	promptEnd := len(parameters)
 	for _, marker := range []string{"\nNegative prompt:", "\nSteps:"} {

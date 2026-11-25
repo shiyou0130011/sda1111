@@ -47,6 +47,7 @@ func TestGetImageMetadataRejectsNilReader(t *testing.T) {
 	}
 }
 
+// pngWithParameters 建立包含指定 parameters 文字區塊的測試 PNG。
 func pngWithParameters(t *testing.T, parameters string) []byte {
 	t.Helper()
 
@@ -63,6 +64,7 @@ func pngWithParameters(t *testing.T, parameters string) []byte {
 	return result
 }
 
+// makePNGChunk 組合 PNG 區塊並計算其 CRC 校驗碼。
 func makePNGChunk(kind string, data []byte) []byte {
 	chunk := make([]byte, 12+len(data))
 	binary.BigEndian.PutUint32(chunk[:4], uint32(len(data)))
